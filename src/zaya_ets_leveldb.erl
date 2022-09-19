@@ -70,13 +70,6 @@
   get_size/1
 ]).
 
-%%=================================================================
-%%	COPY API
-%%=================================================================
--export([
-
-]).
-
 -record(ref,{ets,leveldb}).
 
 %%=================================================================
@@ -100,7 +93,7 @@ close( #ref{ets = EtsRef, leveldb = LeveldbRef} )->
   zaya_ets:close( EtsRef ),
   zaya_leveldb:close( LeveldbRef ).
 
-remove( #{leveldb = Params} )->
+remove( #{leveldb := Params} )->
   zaya_leveldb:remove( Params ).
 
 %%=================================================================
