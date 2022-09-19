@@ -51,12 +51,12 @@
 %%=================================================================
 %%	SERVICE
 %%=================================================================
-create( #{leveldb := Params} )->
-  zaya_leveldb:create( Params ).
+create( Params )->
+  zaya_leveldb:create( maps:get(leveldb,Params,#{}) ).
 
-open( #{leveldb := LeveldbParams, ets := EtsParams} )->
-  LeveldbRef = zaya_leveldb:open( LeveldbParams ),
-  EtsRef = zaya_ets:open( EtsParams ),
+open( Params )->
+  LeveldbRef = zaya_leveldb:open( maps:get(leveldb,Params,#{}) ),
+  EtsRef = zaya_ets:open( maps:get(ets,Params,#{}) ),
 
   zaya_leveldb:foldl(LeveldbRef,#{},fun(Rec,Acc)->
     zaya_ets:write( EtsRef, [Rec] ),
