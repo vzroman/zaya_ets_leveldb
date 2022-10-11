@@ -66,7 +66,7 @@ open( Params )->
   #ref{ ets = EtsRef, leveldb = LeveldbRef }.
 
 close( #ref{ets = EtsRef, leveldb = LeveldbRef} )->
-  zaya_ets:close( EtsRef ),
+  catch zaya_ets:close( EtsRef ),
   zaya_leveldb:close( LeveldbRef ).
 
 remove( #{leveldb := Params} )->
