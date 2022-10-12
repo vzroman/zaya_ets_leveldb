@@ -52,7 +52,16 @@
 %%	SERVICE
 %%=================================================================
 create( Params )->
-  zaya_leveldb:create( maps:get(leveldb,Params,#{}) ).
+  EtsRef = zaya_ets:create( maps:get(ets,Params,#{}) ),
+  try
+    LeveldbRef = zaya_leveldb:create( maps:get(leveldb,Params,#{}) ),
+    #ref{ ets = EtsRef, leveldb = LeveldbRef }
+  catch
+    _:E->
+      catch zaya_ets:close(EtsRef),
+      catch zaya_ets:remove(maps:get(ets,Params,#{})),
+      throw(E)
+  end.
 
 open( Params )->
   LeveldbRef = zaya_leveldb:open( maps:get(leveldb,Params,#{}) ),
