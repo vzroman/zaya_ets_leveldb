@@ -52,19 +52,20 @@
 %%	SERVICE
 %%=================================================================
 create( Params )->
-  EtsRef = zaya_ets:create( maps:get(ets,Params,#{}) ),
+  EtsParams = maps:get(ets,Params,#{}),
+  EtsRef = zaya_ets:create( EtsParams ),
   try
-    LeveldbRef = zaya_leveldb:create( maps:get(leveldb,Params,#{}) ),
+    LeveldbRef = zaya_leveldb:create( leveldb_params( Params ) ),
     #ref{ ets = EtsRef, leveldb = LeveldbRef }
   catch
     _:E->
       catch zaya_ets:close(EtsRef),
-      catch zaya_ets:remove(maps:get(ets,Params,#{})),
+      catch zaya_ets:remove(EtsParams),
       throw(E)
   end.
 
 open( Params )->
-  LeveldbRef = zaya_leveldb:open( maps:get(leveldb,Params,#{}) ),
+  LeveldbRef = zaya_leveldb:open( leveldb_params( Params ) ),
   EtsRef = zaya_ets:open( maps:get(ets,Params,#{}) ),
 
   zaya_leveldb:foldl(LeveldbRef,#{},fun(Rec,Acc)->
@@ -130,3 +131,12 @@ foldr( #ref{ets = EtsRef}, Query, Fun, InAcc )->
 %%=================================================================
 get_size( #ref{ets = EtsRef})->
   zaya_ets:get_size( EtsRef ).
+
+leveldb_params( Params )->
+  Params0 = maps:get(leveldb,Params,#{}),
+  case Params of
+    #{ dir := Dir }->
+      Params0#{ dir => Dir };
+    _->
+      Params0
+  end.
