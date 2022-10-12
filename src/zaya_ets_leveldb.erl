@@ -52,10 +52,10 @@
 %%	SERVICE
 %%=================================================================
 create( Params )->
-  EtsParams = maps:get(ets,Params,#{}),
+  EtsParams = type_params(ets,Params),
   EtsRef = zaya_ets:create( EtsParams ),
   try
-    LeveldbRef = zaya_leveldb:create( leveldb_params( Params ) ),
+    LeveldbRef = zaya_leveldb:create( type_params(leveldb, Params) ),
     #ref{ ets = EtsRef, leveldb = LeveldbRef }
   catch
     _:E->
@@ -65,8 +65,8 @@ create( Params )->
   end.
 
 open( Params )->
-  LeveldbRef = zaya_leveldb:open( leveldb_params( Params ) ),
-  EtsRef = zaya_ets:open( maps:get(ets,Params,#{}) ),
+  LeveldbRef = zaya_leveldb:open( type_params(leveldb, Params ) ),
+  EtsRef = zaya_ets:open( type_params(ets,Params) ),
 
   zaya_leveldb:foldl(LeveldbRef,#{},fun(Rec,Acc)->
     zaya_ets:write( EtsRef, [Rec] ),
@@ -132,11 +132,7 @@ foldr( #ref{ets = EtsRef}, Query, Fun, InAcc )->
 get_size( #ref{ets = EtsRef})->
   zaya_ets:get_size( EtsRef ).
 
-leveldb_params( Params )->
-  Params0 = maps:get(leveldb,Params,#{}),
-  case Params of
-    #{ dir := Dir }->
-      Params0#{ dir => Dir };
-    _->
-      Params0
-  end.
+type_params( Type, Params )->
+  TypeParams = maps:with([Type],Params),
+  OtherParams = maps:without([ets,leveldb], Params),
+  maps:merge( OtherParams, TypeParams ).
