@@ -28,10 +28,6 @@
 -define(INRAM, element(2, Refs)).
 -define(INDISK, element(3, Refs)).
 
-
-
-%-record(ref,{ets,leveldb}).
-
 all() -> [
     low_level_api_tests,
     first_tests,
