@@ -1,5 +1,5 @@
 {application, zaya_ets_leveldb,
- [{description, "ETS + LevelDb driver for zaya"},
+ [{description, "ETS + LevelDB driver for zaya"},
   {vsn, git},
   {registered, []},
   {applications,
