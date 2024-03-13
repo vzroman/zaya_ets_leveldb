@@ -53,7 +53,10 @@
 -export([
   transaction/1,
   t_write/3,
+  t_delete/3,
   commit/2,
+  commit1/2,
+  commit2/2,
   rollback/2
 ]).
 
@@ -156,27 +159,39 @@ dump_batch(Ref, KVs)->
 %%=================================================================
 %%	TRANSACTION API
 %%=================================================================
-transaction( _Ref )->
-  ets:new(?MODULE,[
-    private,
-    ordered_set,
-    {read_concurrency, true},
-    {write_concurrency, auto}
-  ]).
+transaction( #ref{ ets = EtsRef, leveldb = LeveldbRef } )->
+  EtsTRef = zaya_ets:transaction( EtsRef ),
+  LeveldbTRef = zaya_leveldb:transaction( LeveldbRef ),
+  { EtsTRef, LeveldbTRef }.
 
-t_write( _Ref, TRef, KVs )->
-  ets:insert( TRef, KVs ),
+t_write( #ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef}, KVs )->
+  zaya_leveldb:t_write(LeveldbRef, LeveldbTRef, KVs ),
+  zaya_ets:t_write( EtsRef, EtsTRef, KVs ),
   ok.
 
-commit(#ref{ ets = EtsRef, leveldb = LeveldbRef }, TRef)->
-  KVs = ets:tab2list( TRef ),
-  zaya_leveldb:write( LeveldbRef, KVs ),
-  zaya_ets:write( EtsRef, KVs ),
+t_delete( #ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef}, Keys )->
+  zaya_leveldb:t_delete(LeveldbRef, LeveldbTRef, Keys ),
+  zaya_ets:t_delete( EtsRef, EtsTRef, Keys ),
   ok.
 
+commit(#ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef})->
+  zaya_leveldb:commit( LeveldbRef, LeveldbTRef ),
+  zaya_ets:commit( EtsRef, EtsTRef ),
+  ok.
 
-rollback(_Ref, TRef )->
-  ets:delete( TRef ),
+commit1(#ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef})->
+  zaya_leveldb:commit1( LeveldbRef, LeveldbTRef ),
+  zaya_ets:commit1( EtsRef, EtsTRef ),
+  ok.
+
+commit2(#ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef})->
+  zaya_leveldb:commit2( LeveldbRef, LeveldbTRef ),
+  zaya_ets:commit2( EtsRef, EtsTRef ),
+  ok.
+
+rollback(#ref{ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef})->
+  zaya_leveldb:rollback( LeveldbRef, LeveldbTRef ),
+  zaya_ets:rollback(EtsRef, EtsTRef ),
   ok.
 
 %%=================================================================
