@@ -48,6 +48,16 @@
 ]).
 
 %%=================================================================
+%%	TRANSACTION API
+%%=================================================================
+-export([
+  transaction/1,
+  t_write/3,
+  commit/2,
+  rollback/2
+]).
+
+%%=================================================================
 %%	INFO API
 %%=================================================================
 -export([
@@ -142,6 +152,28 @@ copy(Ref, Fun, InAcc)->
 
 dump_batch(Ref, KVs)->
   write(Ref, KVs).
+
+%%=================================================================
+%%	TRANSACTION API
+%%=================================================================
+transaction( #ref{ ets = EtsRef, leveldb  = LeveldbRef } )->
+  { zaya_ets:transaction( EtsRef ), zaya_leveldb:transaction( LeveldbRef ) }.
+
+t_write( #ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef}, KVs )->
+  zaya_rocksdb:t_write( LeveldbRef, LeveldbTRef, KVs ),
+  zaya_ets:t_write( EtsRef, EtsTRef, KVs ),
+  ok.
+
+commit(#ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef})->
+  zaya_rocksdb:commit( LeveldbRef, LeveldbTRef ),
+  zaya_ets:commit( EtsRef, EtsTRef ),
+  ok.
+
+
+rollback(#ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef} )->
+  zaya_rocksdb:rollback( LeveldbRef, LeveldbTRef ),
+  zaya_ets:rollback( EtsRef, EtsTRef ),
+  ok.
 
 %%=================================================================
 %%	INFO
