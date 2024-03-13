@@ -156,23 +156,27 @@ dump_batch(Ref, KVs)->
 %%=================================================================
 %%	TRANSACTION API
 %%=================================================================
-transaction( #ref{ ets = EtsRef, leveldb  = LeveldbRef } )->
-  { zaya_ets:transaction( EtsRef ), zaya_leveldb:transaction( LeveldbRef ) }.
+transaction( _Ref )->
+  ets:new(?MODULE,[
+    private,
+    ordered_set,
+    {read_concurrency, true},
+    {write_concurrency, auto}
+  ]).
 
-t_write( #ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef}, KVs )->
-  zaya_rocksdb:t_write( LeveldbRef, LeveldbTRef, KVs ),
-  zaya_ets:t_write( EtsRef, EtsTRef, KVs ),
+t_write( _Ref, TRef, KVs )->
+  ets:insert( TRef, KVs ),
   ok.
 
-commit(#ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef})->
-  zaya_rocksdb:commit( LeveldbRef, LeveldbTRef ),
-  zaya_ets:commit( EtsRef, EtsTRef ),
+commit(#ref{ ets = EtsRef, leveldb = LeveldbRef }, TRef)->
+  KVs = ets:tab2list( TRef ),
+  zaya_leveldb:write( LeveldbRef, KVs ),
+  zaya_ets:write( EtsRef, KVs ),
   ok.
 
 
-rollback(#ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef} )->
-  zaya_rocksdb:rollback( LeveldbRef, LeveldbTRef ),
-  zaya_ets:rollback( EtsRef, EtsTRef ),
+rollback(_Ref, TRef )->
+  ets:delete( TRef ),
   ok.
 
 %%=================================================================
