@@ -162,9 +162,9 @@ commit(#ref{ ets = EtsRef, leveldb = LeveldbRef }, Write, Delete)->
   ok.
 
 commit1(#ref{ ets = EtsRef, leveldb = LeveldbRef }, Write, Delete)->
-  zaya_leveldb:commit1( LeveldbRef, Write, Delete ),
-  zaya_ets:commit1( EtsRef, Write, Delete ),
-  ok.
+  LeveldbTRef = zaya_leveldb:commit1( LeveldbRef, Write, Delete ),
+  EtsTRef = zaya_ets:commit1( EtsRef, Write, Delete ),
+  {EtsTRef, LeveldbTRef}.
 
 commit2(#ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef})->
   zaya_leveldb:commit2( LeveldbRef, LeveldbTRef ),
