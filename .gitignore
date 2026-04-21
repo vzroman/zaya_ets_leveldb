@@ -1,4 +1,4 @@
 rebar.lock
 zaya_ets_leveldb.iml
 _build/*
-
+.worktrees/*
