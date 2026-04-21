@@ -52,9 +52,8 @@
 %%=================================================================
 -export([
   commit/3,
-  commit1/3,
-  commit2/2,
-  rollback/2
+  prepare_rollback/3,
+  is_persistent/0
 ]).
 
 %%=================================================================
@@ -161,20 +160,30 @@ commit(#ref{ ets = EtsRef, leveldb = LeveldbRef }, Write, Delete)->
   zaya_ets:commit( EtsRef, Write, Delete ),
   ok.
 
-commit1(#ref{ ets = EtsRef, leveldb = LeveldbRef }, Write, Delete)->
-  LeveldbTRef = zaya_leveldb:commit1( LeveldbRef, Write, Delete ),
-  EtsTRef = zaya_ets:commit1( EtsRef, Write, Delete ),
-  {EtsTRef, LeveldbTRef}.
+prepare_rollback(#ref{ets = EtsRef}, Write, Delete)->
+  prepare_rollback_from_read(fun(Keys)-> zaya_ets:read(EtsRef, Keys) end, Write, Delete).
 
-commit2(#ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef})->
-  zaya_leveldb:commit2( LeveldbRef, LeveldbTRef ),
-  zaya_ets:commit2( EtsRef, EtsTRef ),
-  ok.
+is_persistent()->
+  true.
 
-rollback(#ref{ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef})->
-  zaya_leveldb:rollback( LeveldbRef, LeveldbTRef ),
-  zaya_ets:rollback(EtsRef, EtsTRef ),
-  ok.
+prepare_rollback_from_read(ReadFun, Write, Delete)->
+  WriteMap = maps:from_list(Write),
+  WriteKeys = maps:keys(WriteMap),
+  CurrentForWrites = maps:from_list(ReadFun(WriteKeys)),
+  CurrentForDeletes = maps:from_list(ReadFun(Delete)),
+  RestoreWrites =
+    maps:fold(
+      fun(Key, Existing, Acc)->
+        case maps:get(Key, WriteMap) of
+          Existing -> Acc;
+          _ -> Acc#{Key => Existing}
+        end
+      end,
+      CurrentForDeletes,
+      CurrentForWrites
+    ),
+  DeleteBack = [Key || Key <- WriteKeys, not maps:is_key(Key, CurrentForWrites)],
+  {maps:to_list(RestoreWrites), DeleteBack}.
 
 %%=================================================================
 %%	INFO
