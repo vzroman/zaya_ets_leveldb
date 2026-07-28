@@ -1,4 +1,3 @@
-
 -module(zaya_ets_leveldb).
 
 %%=================================================================
@@ -52,9 +51,15 @@
 %%=================================================================
 -export([
   commit/3,
-  commit1/3,
-  commit2/2,
-  rollback/2
+  prepare_rollback/3,
+  is_persistent/0
+]).
+
+%%=================================================================
+%%	POOL API
+%%=================================================================
+-export([
+  pool_batch/2
 ]).
 
 %%=================================================================
@@ -64,85 +69,108 @@
   get_size/1
 ]).
 
--record(ref,{ets,leveldb}).
+-record(ref, {
+  ets,
+  leveldb,
+  pool
+}).
+
+-define(LOAD_BATCH_SIZE, 1000).
 
 %%=================================================================
 %%	SERVICE
 %%=================================================================
-create( Params )->
-  EtsParams = type_params(ets,Params),
-  EtsRef = zaya_ets:create( EtsParams ),
-  try
-    LeveldbRef = zaya_leveldb:create( type_params(leveldb, Params) ),
-    #ref{ ets = EtsRef, leveldb = LeveldbRef }
-  catch
-    _:E->
-      catch zaya_ets:close(EtsRef),
-      catch zaya_ets:remove(EtsParams),
-      throw(E)
+create(Params)->
+  case pipe(#ref{}, [
+    fun(Ref)-> Ref#ref{ets = zaya_ets:create(type_params(ets, Params))} end,
+    fun(Ref)-> Ref#ref{leveldb = zaya_leveldb:create(type_params(leveldb, Params))} end,
+    fun(#ref{ets = EtsRef, leveldb = LeveldbRef} = Ref)->
+      Ref#ref{pool = open_pool(EtsRef, LeveldbRef, Params)}
+    end
+  ]) of
+    {ok, Ref}-> Ref;
+    {error, Error, Ref}->
+      catch close(Ref),
+      catch remove(Params),
+      throw(Error)
   end.
 
-open( Params )->
-  LeveldbRef = zaya_leveldb:open( type_params(leveldb, Params ) ),
-  EtsRef = zaya_ets:open( type_params(ets,Params) ),
+open(Params)->
+  case pipe(#ref{}, [
+    fun(Ref)-> Ref#ref{leveldb = zaya_leveldb:open(type_params(leveldb, Params))} end,
+    fun(Ref)-> Ref#ref{ets = zaya_ets:open(type_params(ets, Params))} end,
+    fun(#ref{ets = EtsRef, leveldb = LeveldbRef} = Ref)->
+      Ref#ref{pool = open_pool(EtsRef, LeveldbRef, Params)}
+    end,
+    fun(#ref{ets = EtsRef, leveldb = LeveldbRef} = Ref)->
+      load_data(LeveldbRef, EtsRef),
+      Ref
+    end
+  ]) of
+    {ok, Ref}-> Ref;
+    {error, Error, Ref}->
+      catch close(Ref),
+      throw(Error)
+  end.
 
-  zaya_leveldb:foldl(LeveldbRef,#{},fun(Rec,Acc)->
-    zaya_ets:write( EtsRef, [Rec] ),
-    Acc
-  end,[]),
+close(#ref{
+  ets = EtsRef,
+  leveldb = LeveldbRef,
+  pool = Pool
+})->
+  catch close_pool(Pool),
+  catch zaya_ets:close(EtsRef),
+  catch zaya_leveldb:close(LeveldbRef),
+  ok.
 
-  #ref{ ets = EtsRef, leveldb = LeveldbRef }.
-
-close( #ref{ets = EtsRef, leveldb = LeveldbRef} )->
-  catch zaya_ets:close( EtsRef ),
-  zaya_leveldb:close( LeveldbRef ).
-
-remove( Params )->
-  zaya_leveldb:remove( type_params(leveldb, Params ) ).
+remove(Params)->
+  zaya_leveldb:remove(type_params(leveldb, Params)),
+  ok.
 
 %%=================================================================
 %%	LOW_LEVEL
 %%=================================================================
 read(#ref{ets = EtsRef}, Keys)->
-  zaya_ets:read( EtsRef, Keys ).
+  zaya_ets:read(EtsRef, Keys).
 
-write(#ref{ets = EtsRef, leveldb = LeveldbRef}, KVs)->
-  zaya_leveldb:write( LeveldbRef, KVs ),
-  zaya_ets:write( EtsRef, KVs ).
+write(#ref{ets = EtsRef, leveldb = LeveldbRef, pool = disabled}, KVs)->
+  zaya_leveldb:write(LeveldbRef, KVs),
+  zaya_ets:write(EtsRef, KVs);
+write(#ref{pool = Pool}, KVs)->
+  zaya_pool:call(Pool, [{write, KVs}]).
 
-delete(#ref{ets = EtsRef, leveldb = LeveldbRef}, Keys)->
-  zaya_leveldb:delete( LeveldbRef, Keys ),
-  zaya_ets:delete( EtsRef, Keys ).
+delete(#ref{ets = EtsRef, leveldb = LeveldbRef, pool = disabled}, Keys)->
+  zaya_leveldb:delete(LeveldbRef, Keys),
+  zaya_ets:delete(EtsRef, Keys);
+delete(#ref{pool = Pool}, Keys)->
+  zaya_pool:call(Pool, [{delete, Keys}]).
 
 %%=================================================================
 %%	ITERATOR
 %%=================================================================
-first( #ref{ets = EtsRef} )->
-  zaya_ets:first( EtsRef ).
+first(#ref{ets = EtsRef})->
+  zaya_ets:first(EtsRef).
 
-last( #ref{ets = EtsRef} )->
-  zaya_ets:last( EtsRef ).
+last(#ref{ets = EtsRef})->
+  zaya_ets:last(EtsRef).
 
-next( #ref{ets = EtsRef}, Key )->
-  zaya_ets:next( EtsRef, Key ).
+next(#ref{ets = EtsRef}, Key)->
+  zaya_ets:next(EtsRef, Key).
 
-prev( #ref{ets = EtsRef}, Key )->
-  zaya_ets:prev( EtsRef, Key ).
+prev(#ref{ets = EtsRef}, Key)->
+  zaya_ets:prev(EtsRef, Key).
 
 %%=================================================================
 %%	HIGH-LEVEL API
 %%=================================================================
-%----------------------FIND------------------------------------------
 find(#ref{ets = EtsRef}, Query)->
-  zaya_ets:find( EtsRef, Query ).
+  zaya_ets:find(EtsRef, Query).
 
-%----------------------FOLD LEFT------------------------------------------
-foldl( #ref{ets = EtsRef}, Query, Fun, InAcc )->
-  zaya_ets:foldl( EtsRef, Query, Fun, InAcc ).
+foldl(#ref{ets = EtsRef}, Query, Fun, InAcc)->
+  zaya_ets:foldl(EtsRef, Query, Fun, InAcc).
 
-%----------------------FOLD RIGHT------------------------------------------
-foldr( #ref{ets = EtsRef}, Query, Fun, InAcc )->
-  zaya_ets:foldr( EtsRef, Query, Fun, InAcc ).
+foldr(#ref{ets = EtsRef}, Query, Fun, InAcc)->
+  zaya_ets:foldr(EtsRef, Query, Fun, InAcc).
 
 %%=================================================================
 %%	COPY
@@ -150,39 +178,101 @@ foldr( #ref{ets = EtsRef}, Query, Fun, InAcc )->
 copy(Ref, Fun, InAcc)->
   foldl(Ref, #{}, Fun, InAcc).
 
-dump_batch(Ref, KVs)->
-  write(Ref, KVs).
+dump_batch(#ref{ets = EtsRef, leveldb = LeveldbRef}, KVs)->
+  zaya_leveldb:write(LeveldbRef, KVs),
+  zaya_ets:write(EtsRef, KVs).
 
 %%=================================================================
 %%	TRANSACTION API
 %%=================================================================
-commit(#ref{ ets = EtsRef, leveldb = LeveldbRef }, Write, Delete)->
-  zaya_leveldb:commit( LeveldbRef, Write, Delete ),
-  zaya_ets:commit( EtsRef, Write, Delete ),
-  ok.
+commit(#ref{ets = EtsRef, leveldb = LeveldbRef, pool = disabled}, Write, Delete)->
+  zaya_leveldb:commit(LeveldbRef, Write, Delete),
+  zaya_ets:commit(EtsRef, Write, Delete),
+  ok;
+commit(#ref{pool = Pool}, Write, Delete)->
+  zaya_pool:call(Pool, [{write, Write}, {delete, Delete}]).
 
-commit1(#ref{ ets = EtsRef, leveldb = LeveldbRef }, Write, Delete)->
-  LeveldbTRef = zaya_leveldb:commit1( LeveldbRef, Write, Delete ),
-  EtsTRef = zaya_ets:commit1( EtsRef, Write, Delete ),
-  {EtsTRef, LeveldbTRef}.
+prepare_rollback(#ref{ets = EtsRef}, Write, Delete)->
+  zaya_ets:prepare_rollback(EtsRef, Write, Delete).
 
-commit2(#ref{ ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef})->
-  zaya_leveldb:commit2( LeveldbRef, LeveldbTRef ),
-  zaya_ets:commit2( EtsRef, EtsTRef ),
-  ok.
+is_persistent()->
+  true.
 
-rollback(#ref{ets = EtsRef, leveldb = LeveldbRef }, {EtsTRef, LeveldbTRef})->
-  zaya_leveldb:rollback( LeveldbRef, LeveldbTRef ),
-  zaya_ets:rollback(EtsRef, EtsTRef ),
+%%=================================================================
+%%	POOL API
+%%=================================================================
+pool_batch({EtsRef, LeveldbRef}, Requests)->
+  do_pool_batch(Requests, EtsRef, LeveldbRef, []).
+
+do_pool_batch([{write, KVs} | Rest], EtsRef, LeveldbRef, Writes)->
+  do_pool_batch(Rest, EtsRef, LeveldbRef, [KVs | Writes]);
+do_pool_batch(Requests, EtsRef, LeveldbRef, [_ | _] = Writes)->
+  KVs = lists:append(lists:reverse(Writes)),
+  zaya_leveldb:write(LeveldbRef, KVs),
+  zaya_ets:write(EtsRef, KVs),
+  do_pool_batch(Requests, EtsRef, LeveldbRef, []);
+do_pool_batch([{delete, Keys} | Rest], EtsRef, LeveldbRef, Writes)->
+  zaya_leveldb:delete(LeveldbRef, Keys),
+  zaya_ets:delete(EtsRef, Keys),
+  do_pool_batch(Rest, EtsRef, LeveldbRef, Writes);
+do_pool_batch([], _EtsRef, _LeveldbRef, [])->
   ok.
 
 %%=================================================================
 %%	INFO
 %%=================================================================
-get_size( #ref{ets = EtsRef})->
-  zaya_ets:get_size( EtsRef ).
+get_size(#ref{ets = EtsRef})->
+  zaya_ets:get_size(EtsRef).
 
-type_params( Type, Params )->
-  TypeParams = maps:with([Type],Params),
-  OtherParams = maps:without([ets,leveldb], Params),
-  maps:merge( OtherParams, TypeParams ).
+%%=================================================================
+%%	UTILITIES
+%%=================================================================
+load_data(LeveldbRef, EtsRef)->
+  Tail = zaya_leveldb:foldl(LeveldbRef, #{}, fun(Rec, {Batch, Count})->
+    Batch1 = [Rec | Batch],
+    case Count + 1 of
+      ?LOAD_BATCH_SIZE ->
+        zaya_ets:dump_batch(EtsRef, Batch1),
+        {[], 0};
+      Count1 ->
+        {Batch1, Count1}
+    end
+  end, {[], 0}),
+  case Tail of
+    {[_ | _] = Rest, _} -> zaya_ets:dump_batch(EtsRef, Rest);
+    _ -> ok
+  end.
+
+open_pool(_EtsRef, _LeveldbRef, #{pool := disabled})->
+  disabled;
+open_pool(EtsRef, LeveldbRef, Params) when is_map(Params)->
+  {ok, Pool} = zaya_pool:start_link(pool_params(EtsRef, LeveldbRef, Params)),
+  Pool.
+
+close_pool(disabled)->
+  ok;
+close_pool(Pool)->
+  zaya_pool:stop(Pool).
+
+pool_params(EtsRef, LeveldbRef, Params)->
+  maps:merge(
+    maps:get(pool, Params, #{}),
+    #{
+      ref => {EtsRef, LeveldbRef},
+      module => ?MODULE
+    }
+  ).
+
+pipe(Ref, [Step | Rest])->
+  try Step(Ref) of
+    Ref1 -> pipe(Ref1, Rest)
+  catch _:Error ->
+    {error, Error, Ref}
+  end;
+pipe(Ref, [])->
+  {ok, Ref}.
+
+type_params(Type, Params)->
+  TypeParams = maps:with([Type], Params),
+  OtherParams = maps:without([ets, leveldb, pool], Params),
+  maps:merge(OtherParams#{pool => disabled}, TypeParams).

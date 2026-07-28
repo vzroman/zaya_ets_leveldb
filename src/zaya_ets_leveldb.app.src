@@ -6,7 +6,8 @@
    [kernel,
     stdlib,
     zaya_ets,
-    zaya_leveldb
+    zaya_leveldb,
+    zaya_pool
    ]},
   {env,[]},
   {modules, []},
